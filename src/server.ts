@@ -2,7 +2,7 @@ import { buildApp } from './app';
 import { loadConfig } from './config';
 
 const config = loadConfig();
-const app = buildApp({ logger: true });
+const app = buildApp({ logger: true, config });
 
 app.listen(config.server).catch((error: unknown) => {
   app.log.error(error);
