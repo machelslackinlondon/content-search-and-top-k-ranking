@@ -16,6 +16,16 @@ export interface SearchQuery {
 export interface SearchResult {
   document: DocumentInput;
   score: number;
+  explanation: ScoreExplanation;
+}
+
+export interface ScoreExplanation {
+  coverage: number;
+  termFrequency: number;
+  titleBoost: number;
+  tagBoost: number;
+  popularity: number;
+  total: number;
 }
 
 export interface SearchResponse {

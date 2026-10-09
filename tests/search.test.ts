@@ -118,3 +118,19 @@ test('returns defensive document values rather than source-store references', ()
   expect(service.search({ q: 'node', limit: 10, fuzzy: false, filters: {} }).results[0]?.document.tags)
     .toEqual(['backend']);
 });
+
+test('ranks stronger field matches before weaker matches', () => {
+  const service = indexedService([
+    document({ id: 'body-match', title: 'Other', body: 'Node' }),
+    document({ id: 'title-match', title: 'Node', body: 'Other' }),
+  ]);
+
+  const response = service.search({ q: 'node', limit: 10, fuzzy: false, filters: {} });
+
+  expect(response.results.map(({ document: value }) => value.id)).toEqual([
+    'title-match',
+    'body-match',
+  ]);
+  expect(response.results[0]?.score).toBeGreaterThan(response.results[1]?.score ?? 0);
+  expect(response.results[0]?.explanation.total).toBe(response.results[0]?.score);
+});

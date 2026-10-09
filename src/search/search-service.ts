@@ -2,6 +2,7 @@ import type { DocumentInput, StoredDocument } from '../domain/document';
 import { DocumentStore } from '../domain/document-store';
 import { InvertedIndex, type FilterField } from '../index/inverted-index';
 import { tokenize } from '../index/tokenizer';
+import { compareRankedResults, rankDocument } from '../ranking/ranker';
 import type {
   SearchFilters,
   SearchQuery,
@@ -50,11 +51,18 @@ export class SearchService {
     const results: SearchResult[] = [];
     for (const id of filteredIds) {
       const document = this.#store.get(id);
-      if (document?.indexStatus === 'indexed') {
-        results.push({ document: publicDocument(document), score: 0 });
+      const documentTerms = this.#index.documentTerms(id);
+      if (document?.indexStatus === 'indexed' && documentTerms !== undefined) {
+        const publicValue = publicDocument(document);
+        const explanation = rankDocument(publicValue, documentTerms, terms);
+        results.push({
+          document: publicValue,
+          score: explanation.total,
+          explanation,
+        });
       }
     }
-    results.sort((left, right) => left.document.id.localeCompare(right.document.id));
+    results.sort(compareRankedResults);
 
     return {
       query: query.q,
