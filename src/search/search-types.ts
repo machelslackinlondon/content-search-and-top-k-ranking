@@ -27,6 +27,13 @@ export interface FuzzyMetadata {
   truncated: boolean;
 }
 
+export interface SearchLimits {
+  maxQueryLength: number;
+  maxSearchTerms: number;
+  maxCandidates: number;
+  maxTopK: number;
+}
+
 export interface SearchResult {
   document: DocumentInput;
   score: number;
@@ -49,5 +56,6 @@ export interface SearchResponse {
   consideredCandidates: number;
   tookMs: number;
   results: SearchResult[];
+  candidatesTruncated: boolean;
   fuzzy?: FuzzyMetadata;
 }

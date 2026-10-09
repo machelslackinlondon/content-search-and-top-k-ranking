@@ -1,5 +1,6 @@
 import type { DocumentInput, StoredDocument } from '../domain/document';
 import { DocumentStore } from '../domain/document-store';
+import { AppError } from '../domain/errors';
 import { topK } from '../algorithms/min-heap';
 import { editDistance } from '../algorithms/edit-distance';
 import { InvertedIndex, type FilterField } from '../index/inverted-index';
@@ -10,6 +11,7 @@ import type {
   FuzzyMetadata,
   SearchFilters,
   SearchQuery,
+  SearchLimits,
   SearchResponse,
   SearchResult,
 } from './search-types';
@@ -20,6 +22,13 @@ const DEFAULT_FUZZY_LIMITS: Readonly<FuzzyLimits> = Object.freeze({
   maxExpansions: 5,
   maxDistance: 2,
   deadlineMs: 25,
+});
+
+const DEFAULT_SEARCH_LIMITS: Readonly<SearchLimits> = Object.freeze({
+  maxQueryLength: 512,
+  maxSearchTerms: 16,
+  maxCandidates: 10_000,
+  maxTopK: 100,
 });
 
 function publicDocument(document: StoredDocument): DocumentInput {
@@ -39,27 +48,72 @@ export class SearchService {
   readonly #index: InvertedIndex;
   readonly #now: () => number;
   readonly #fuzzyLimits: Readonly<FuzzyLimits>;
+  readonly #searchLimits: Readonly<SearchLimits>;
 
   constructor(
     store: DocumentStore,
     index: InvertedIndex,
     now: () => number = () => performance.now(),
     fuzzyLimits: Readonly<FuzzyLimits> = DEFAULT_FUZZY_LIMITS,
+    searchLimits: Readonly<SearchLimits> = DEFAULT_SEARCH_LIMITS,
   ) {
     this.#store = store;
     this.#index = index;
     this.#now = now;
     this.#fuzzyLimits = fuzzyLimits;
+    this.#searchLimits = searchLimits;
   }
 
   search(query: SearchQuery): SearchResponse {
-    const startedAt = this.#now();
+    if (query.q.length > this.#searchLimits.maxQueryLength) {
+      throw new AppError(
+        'QUERY_TOO_LARGE',
+        400,
+        `Query must be at most ${this.#searchLimits.maxQueryLength} characters`,
+      );
+    }
+    if (
+      !Number.isSafeInteger(query.limit)
+      || query.limit < 1
+      || query.limit > this.#searchLimits.maxTopK
+    ) {
+      throw new AppError(
+        'INVALID_LIMIT',
+        400,
+        `limit must be an integer between 1 and ${this.#searchLimits.maxTopK}`,
+      );
+    }
     const terms = [...new Set(tokenize(query.q))];
+    if (terms.length > this.#searchLimits.maxSearchTerms) {
+      throw new AppError(
+        'TOO_MANY_SEARCH_TERMS',
+        400,
+        `Query must contain at most ${this.#searchLimits.maxSearchTerms} terms`,
+      );
+    }
+    if (
+      query.fuzzy
+      && terms.some((term) => Array.from(term).length > this.#fuzzyLimits.maxTermLength)
+    ) {
+      throw new AppError(
+        'FUZZY_TERM_TOO_LARGE',
+        400,
+        `Fuzzy terms must be at most ${this.#fuzzyLimits.maxTermLength} characters`,
+      );
+    }
+
+    const startedAt = this.#now();
     const fuzzyExpansion = query.fuzzy ? this.#expandFuzzyTerms(terms) : undefined;
     const rankingTerms = fuzzyExpansion?.terms ?? terms;
     const candidates = new Set<string>();
+    let candidatesTruncated = false;
+    candidateCollection:
     for (const term of rankingTerms) {
       for (const id of this.#index.postings(term).keys()) {
+        if (!candidates.has(id) && candidates.size >= this.#searchLimits.maxCandidates) {
+          candidatesTruncated = true;
+          break candidateCollection;
+        }
         candidates.add(id);
       }
     }
@@ -88,6 +142,7 @@ export class SearchService {
       consideredCandidates: results.length,
       tookMs: Math.max(0, this.#now() - startedAt),
       results: selectedResults,
+      candidatesTruncated,
       ...(fuzzyExpansion === undefined ? {} : { fuzzy: fuzzyExpansion.metadata }),
     };
   }

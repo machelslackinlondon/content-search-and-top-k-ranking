@@ -1,10 +1,10 @@
 import { buildApp } from './app';
+import { loadConfig } from './config';
 
+const config = loadConfig();
 const app = buildApp({ logger: true });
-const port = Number(process.env.PORT ?? 3000);
-const host = process.env.HOST ?? '0.0.0.0';
 
-app.listen({ host, port }).catch((error: unknown) => {
+app.listen(config.server).catch((error: unknown) => {
   app.log.error(error);
   process.exitCode = 1;
 });
