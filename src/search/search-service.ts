@@ -12,6 +12,7 @@ import type {
   SearchFilters,
   SearchQuery,
   SearchLimits,
+  SearchInstrumentation,
   SearchResponse,
   SearchResult,
 } from './search-types';
@@ -49,6 +50,7 @@ export class SearchService {
   readonly #now: () => number;
   readonly #fuzzyLimits: Readonly<FuzzyLimits>;
   readonly #searchLimits: Readonly<SearchLimits>;
+  readonly #instrumentation?: SearchInstrumentation;
 
   constructor(
     store: DocumentStore,
@@ -56,12 +58,16 @@ export class SearchService {
     now: () => number = () => performance.now(),
     fuzzyLimits: Readonly<FuzzyLimits> = DEFAULT_FUZZY_LIMITS,
     searchLimits: Readonly<SearchLimits> = DEFAULT_SEARCH_LIMITS,
+    instrumentation?: SearchInstrumentation,
   ) {
     this.#store = store;
     this.#index = index;
     this.#now = now;
     this.#fuzzyLimits = fuzzyLimits;
     this.#searchLimits = searchLimits;
+    if (instrumentation !== undefined) {
+      this.#instrumentation = instrumentation;
+    }
   }
 
   search(query: SearchQuery): SearchResponse {
@@ -103,7 +109,11 @@ export class SearchService {
     }
 
     const startedAt = this.#now();
+    const fuzzyStartedAt = this.#now();
     const fuzzyExpansion = query.fuzzy ? this.#expandFuzzyTerms(terms) : undefined;
+    if (query.fuzzy) {
+      this.#instrumentation?.observeFuzzy(this.#now() - fuzzyStartedAt);
+    }
     const rankingTerms = fuzzyExpansion?.terms ?? terms;
     const candidates = new Set<string>();
     let candidatesTruncated = false;
@@ -119,6 +129,7 @@ export class SearchService {
     }
 
     const filteredIds = this.#applyFilters(candidates, query.filters);
+    const rankingStartedAt = this.#now();
     const results: SearchResult[] = [];
     for (const id of filteredIds) {
       const document = this.#store.get(id);
@@ -134,13 +145,17 @@ export class SearchService {
       }
     }
     const selectedResults = topK(results, query.limit, compareRankedResults);
+    this.#instrumentation?.observeRanking(this.#now() - rankingStartedAt);
+
+    const tookMs = Math.max(0, this.#now() - startedAt);
+    this.#instrumentation?.observeSearch(query.fuzzy ? 'fuzzy' : 'exact', tookMs);
 
     return {
       query: query.q,
       terms,
       totalCandidates: candidates.size,
       consideredCandidates: results.length,
-      tookMs: Math.max(0, this.#now() - startedAt),
+      tookMs,
       results: selectedResults,
       candidatesTruncated,
       ...(fuzzyExpansion === undefined ? {} : { fuzzy: fuzzyExpansion.metadata }),

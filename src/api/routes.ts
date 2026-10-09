@@ -21,6 +21,8 @@ function admitDocuments(context: SearchContext, documents: readonly DocumentInpu
   try {
     context.store.createMany(documents);
     reservation.commit(documents.map(({ id }) => ({ documentId: id, attempt: 0 })));
+    context.metrics.recordIndex('accepted', documents.length);
+    context.metrics.setQueueDepth(context.queue.depth);
   } catch (error) {
     if (!reservation.settled) {
       reservation.release();
@@ -103,7 +105,10 @@ function searchParameters(request: FastifyRequest): {
 export function registerRoutes(app: FastifyInstance, context: SearchContext): void {
   app.setErrorHandler((error: Error, _request: FastifyRequest, reply: FastifyReply) => {
     if (error instanceof AppError) {
+      const component = error.code === 'INDEX_QUEUE_FULL' ? 'queue' : 'api';
+      context.metrics.recordError(component, error.code);
       if (error.statusCode === 429) {
+        context.metrics.recordQueueRejection();
         void reply.header('Retry-After', '1');
       }
       void reply.code(error.statusCode).send(errorBody(error));
@@ -115,7 +120,52 @@ export function registerRoutes(app: FastifyInstance, context: SearchContext): vo
     });
   });
 
-  app.get('/search', async (request) => context.search.search(searchParameters(request)));
+  app.get('/health', async () => {
+    const utilization = (context.queue.depth + context.queue.reserved) / context.queue.capacity;
+    const status = utilization >= context.config.health.degradedQueueUtilization
+      || context.workers.failedJobs > 0
+      ? 'degraded'
+      : 'ok';
+    return {
+      status,
+      queue: {
+        depth: context.queue.depth,
+        capacity: context.queue.capacity,
+        utilization,
+      },
+      workers: {
+        active: context.workers.activeWorkers,
+        failedJobs: context.workers.failedJobs,
+      },
+    };
+  });
+
+  app.get('/metrics', async (_request, reply) => reply
+    .header('Content-Type', context.metrics.registry.contentType)
+    .send(await context.metrics.registry.metrics()));
+
+  app.get('/search', async (request) => {
+    let mode: 'exact' | 'fuzzy' = 'exact';
+    try {
+      const parameters = searchParameters(request);
+      mode = parameters.fuzzy ? 'fuzzy' : 'exact';
+      const response = context.search.search(parameters);
+      request.log.info(
+        {
+          mode,
+          termCount: response.terms.length,
+          candidateCount: response.totalCandidates,
+          resultCount: response.results.length,
+          tookMs: response.tookMs,
+        },
+        'Search completed',
+      );
+      return response;
+    } catch (error) {
+      context.metrics.recordSearchFailure(mode);
+      throw error;
+    }
+  });
 
   app.post('/documents', async (request, reply) => {
     const document = validateDocument(request.body, context.config.documents);

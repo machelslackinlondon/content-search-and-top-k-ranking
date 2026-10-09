@@ -34,6 +34,14 @@ export interface SearchLimits {
   maxTopK: number;
 }
 
+export type SearchMode = 'exact' | 'fuzzy';
+
+export interface SearchInstrumentation {
+  observeSearch(mode: SearchMode, durationMs: number): void;
+  observeRanking(durationMs: number): void;
+  observeFuzzy(durationMs: number): void;
+}
+
 export interface SearchResult {
   document: DocumentInput;
   score: number;

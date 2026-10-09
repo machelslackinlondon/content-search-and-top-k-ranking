@@ -9,6 +9,7 @@ import {
 } from './index/index-worker-pool';
 import { InvertedIndex } from './index/inverted-index';
 import { SearchService } from './search/search-service';
+import { ServiceMetrics } from './metrics/metrics';
 
 export interface SearchContext {
   config: Readonly<AppConfig>;
@@ -17,6 +18,7 @@ export interface SearchContext {
   queue: BoundedQueue<IndexJob>;
   search: SearchService;
   workers: IndexWorkerPool;
+  metrics: ServiceMetrics;
 }
 
 declare module 'fastify' {
@@ -38,7 +40,15 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
   const store = new DocumentStore();
   const index = new InvertedIndex();
   const queue = new BoundedQueue<IndexJob>(config.indexing.queueCapacity);
-  const search = new SearchService(store, index, undefined, config.fuzzy, config.search);
+  const metrics = new ServiceMetrics();
+  const search = new SearchService(
+    store,
+    index,
+    undefined,
+    config.fuzzy,
+    config.search,
+    metrics,
+  );
   const workers = new IndexWorkerPool({
     queue,
     store,
@@ -46,11 +56,20 @@ export function buildApp(options: BuildAppOptions = {}): FastifyInstance {
     concurrency: config.indexing.concurrency,
     maxRetries: config.indexing.maxRetries,
     ...(options.indexDocument === undefined ? {} : { indexDocument: options.indexDocument }),
+    onEvent: (status) => metrics.recordIndex(status),
+    onActiveWorkersChange: (active) => metrics.setActiveWorkers(active),
+    onQueueDepthChange: (depth) => metrics.setQueueDepth(depth),
+    onFailure: (documentId, attempts, error) => {
+      metrics.recordError('index', 'INDEXING_FAILED');
+      app.log.error(
+        { documentId, attempts, code: 'INDEXING_FAILED', error: error.message },
+        'Indexing failed',
+      );
+    },
   });
-  const context: SearchContext = { config, store, index, queue, search, workers };
+  const context: SearchContext = { config, store, index, queue, search, workers, metrics };
   app.decorate('searchContext', context);
 
-  app.get('/health', async () => ({ status: 'ok' }));
   registerRoutes(app, context);
   if (options.startWorkers ?? true) {
     workers.start();

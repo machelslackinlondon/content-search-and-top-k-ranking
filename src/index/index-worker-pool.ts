@@ -17,6 +17,9 @@ export interface IndexWorkerPoolOptions {
   maxRetries: number;
   indexDocument?: (document: DocumentInput) => Promise<void>;
   onFailure?: (documentId: string, attempts: number, error: Error) => void;
+  onEvent?: (status: 'indexed' | 'retry' | 'failed') => void;
+  onActiveWorkersChange?: (active: number) => void;
+  onQueueDepthChange?: (depth: number) => void;
 }
 
 export class IndexWorkerPool {
@@ -27,6 +30,9 @@ export class IndexWorkerPool {
   readonly #maxRetries: number;
   readonly #indexDocument: (document: DocumentInput) => Promise<void>;
   readonly #onFailure?: (documentId: string, attempts: number, error: Error) => void;
+  readonly #onEvent?: (status: 'indexed' | 'retry' | 'failed') => void;
+  readonly #onActiveWorkersChange?: (active: number) => void;
+  readonly #onQueueDepthChange?: (depth: number) => void;
   readonly #drainWaiters: Array<() => void> = [];
   #loops: Array<Promise<void>> = [];
   #started = false;
@@ -44,6 +50,15 @@ export class IndexWorkerPool {
       ?? (async (document) => { this.#index.replace(document); });
     if (options.onFailure !== undefined) {
       this.#onFailure = options.onFailure;
+    }
+    if (options.onEvent !== undefined) {
+      this.#onEvent = options.onEvent;
+    }
+    if (options.onActiveWorkersChange !== undefined) {
+      this.#onActiveWorkersChange = options.onActiveWorkersChange;
+    }
+    if (options.onQueueDepthChange !== undefined) {
+      this.#onQueueDepthChange = options.onQueueDepthChange;
     }
   }
 
@@ -93,11 +108,14 @@ export class IndexWorkerPool {
       try {
         const immediate = this.#queue.tryTake();
         const job = immediate ?? await this.#queue.take();
+        this.#onQueueDepthChange?.(this.#queue.depth);
         this.#activeWorkers += 1;
+        this.#onActiveWorkersChange?.(this.#activeWorkers);
         try {
           await this.#process(job);
         } finally {
           this.#activeWorkers -= 1;
+          this.#onActiveWorkersChange?.(this.#activeWorkers);
           this.#notifyIdle();
         }
       } catch (error) {
@@ -120,15 +138,18 @@ export class IndexWorkerPool {
       try {
         await this.#indexDocument(document);
         this.#store.setStatus(document.id, 'indexed');
+        this.#onEvent?.('indexed');
         return;
       } catch (cause) {
         const error = cause instanceof Error ? cause : new Error('Unknown indexing failure');
         if (retry < this.#maxRetries) {
           retry += 1;
+          this.#onEvent?.('retry');
           continue;
         }
         this.#failedJobs += 1;
         this.#store.setStatus(document.id, 'failed', error.message);
+        this.#onEvent?.('failed');
         this.#onFailure?.(document.id, retry + 1, error);
         return;
       }
