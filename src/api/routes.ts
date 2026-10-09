@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { SearchContext } from '../app';
 import { validateDocument, type DocumentInput } from '../domain/document';
 import { AppError } from '../domain/errors';
+import type { SearchFilters } from '../search/search-types';
 
 function errorBody(error: AppError): {
   error: { code: string; message: string; details?: Readonly<Record<string, unknown>> };
@@ -45,6 +46,60 @@ function bulkBody(request: FastifyRequest): unknown[] {
   return (body as { documents: unknown[] }).documents;
 }
 
+function searchParameters(request: FastifyRequest): {
+  q: string;
+  limit: number;
+  fuzzy: boolean;
+  filters: SearchFilters;
+} {
+  const query = request.query;
+  const values = typeof query === 'object' && query !== null && !Array.isArray(query)
+    ? query as Record<string, unknown>
+    : {};
+  if (typeof values.q !== 'string') {
+    throw new AppError('MISSING_QUERY', 400, 'The q query parameter is required');
+  }
+
+  let limit = 10;
+  if (values.limit !== undefined) {
+    if (typeof values.limit !== 'string' || !/^\d+$/.test(values.limit)) {
+      throw new AppError('INVALID_LIMIT', 400, 'limit must be a positive integer');
+    }
+    limit = Number(values.limit);
+  }
+
+  let fuzzy = false;
+  if (values.fuzzy !== undefined) {
+    if (values.fuzzy !== 'true' && values.fuzzy !== 'false') {
+      throw new AppError(
+        'INVALID_FUZZY_FLAG',
+        400,
+        'fuzzy must be either true or false',
+      );
+    }
+    fuzzy = values.fuzzy === 'true';
+  }
+
+  const filters: SearchFilters = {};
+  for (const field of ['category', 'author'] as const) {
+    const value = values[field];
+    if (value !== undefined) {
+      if (typeof value !== 'string') {
+        throw new AppError('INVALID_FILTER', 400, `${field} must be a string`);
+      }
+      filters[field] = value;
+    }
+  }
+  if (values.tag !== undefined) {
+    const tags = Array.isArray(values.tag) ? values.tag : [values.tag];
+    if (!tags.every((tag) => typeof tag === 'string')) {
+      throw new AppError('INVALID_FILTER', 400, 'tag must be a string');
+    }
+    filters.tags = tags as string[];
+  }
+  return { q: values.q, limit, fuzzy, filters };
+}
+
 export function registerRoutes(app: FastifyInstance, context: SearchContext): void {
   app.setErrorHandler((error: Error, _request: FastifyRequest, reply: FastifyReply) => {
     if (error instanceof AppError) {
@@ -59,6 +114,8 @@ export function registerRoutes(app: FastifyInstance, context: SearchContext): vo
       error: { code: 'INTERNAL_ERROR', message: 'An unexpected error occurred' },
     });
   });
+
+  app.get('/search', async (request) => context.search.search(searchParameters(request)));
 
   app.post('/documents', async (request, reply) => {
     const document = validateDocument(request.body, context.config.documents);
