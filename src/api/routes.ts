@@ -3,11 +3,6 @@ import type { SearchContext } from '../app';
 import { validateDocument, type DocumentInput } from '../domain/document';
 import { AppError } from '../domain/errors';
 
-export interface IndexJob {
-  documentId: string;
-  attempt: number;
-}
-
 function errorBody(error: AppError): {
   error: { code: string; message: string; details?: Readonly<Record<string, unknown>> };
 } {

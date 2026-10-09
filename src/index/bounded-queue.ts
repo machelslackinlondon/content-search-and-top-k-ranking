@@ -100,7 +100,7 @@ export class BoundedQueue<T> {
   }
 
   take(): Promise<T> {
-    const item = this.#items.shift();
+    const item = this.tryTake();
     if (item !== undefined) {
       return Promise.resolve(item);
     }
@@ -110,6 +110,10 @@ export class BoundedQueue<T> {
     return new Promise<T>((resolve, reject) => {
       this.#consumers.push({ resolve, reject });
     });
+  }
+
+  tryTake(): T | undefined {
+    return this.#items.shift();
   }
 
   close(): void {

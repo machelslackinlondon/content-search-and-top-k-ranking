@@ -9,7 +9,7 @@ const validDocument = {
 };
 
 test('accepts a document only after source storage and queue admission', async () => {
-  const app = buildApp();
+  const app = buildApp({ startWorkers: false });
 
   const response = await app.inject({
     method: 'POST',
@@ -25,7 +25,7 @@ test('accepts a document only after source storage and queue admission', async (
 });
 
 test('accepts a valid bulk request atomically', async () => {
-  const app = buildApp();
+  const app = buildApp({ startWorkers: false });
   const response = await app.inject({
     method: 'POST',
     url: '/documents/bulk',
@@ -44,7 +44,7 @@ test('accepts a valid bulk request atomically', async () => {
 });
 
 test('does not partially store a malformed or duplicate bulk request', async () => {
-  const app = buildApp();
+  const app = buildApp({ startWorkers: false });
   const malformed = await app.inject({
     method: 'POST',
     url: '/documents/bulk',
@@ -68,7 +68,7 @@ test('does not partially store a malformed or duplicate bulk request', async () 
 
 test('rejects an oversized bulk request before mutating state', async () => {
   const config = loadConfig({ MAX_BULK_SIZE: '1' });
-  const app = buildApp({ config });
+  const app = buildApp({ config, startWorkers: false });
 
   const response = await app.inject({
     method: 'POST',
@@ -91,7 +91,7 @@ test('rejects an oversized bulk request before mutating state', async () => {
 
 test('returns 429 without storing when the indexing queue is full', async () => {
   const config = loadConfig({ INDEX_QUEUE_CAPACITY: '1' });
-  const app = buildApp({ config });
+  const app = buildApp({ config, startWorkers: false });
   await app.inject({ method: 'POST', url: '/documents', payload: validDocument });
 
   const response = await app.inject({
@@ -114,7 +114,7 @@ test('returns 429 without storing when the indexing queue is full', async () => 
 });
 
 test('maps malformed single-document input to a stable error response', async () => {
-  const app = buildApp();
+  const app = buildApp({ startWorkers: false });
   const response = await app.inject({
     method: 'POST',
     url: '/documents',
