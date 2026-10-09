@@ -10,7 +10,15 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build:test && jest --config jest.config.cjs",
     "test:coverage": "npm run build:test && jest --config jest.config.cjs --coverage",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "load:seed": "node load-tests/seed.js",
+    "load:search": "node load-tests/search.js",
+    "load:index": "node load-tests/index.js",
+    "load:mixed": "node load-tests/mixed.js",
+    "load:large-query": "node load-tests/large-query.js",
+    "load:many-candidates": "node load-tests/many-candidates.js",
+    "load:bulk": "node load-tests/bulk.js",
+    "load:fuzzy": "node load-tests/fuzzy.js"
   },
   "engines": {
     "node": ">=24 <25"

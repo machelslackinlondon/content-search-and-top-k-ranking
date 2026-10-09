@@ -1,10 +1,11 @@
 import { buildApp } from './app';
 import { loadConfig } from './config';
+import { createListenOptions } from './server-options';
 
 const config = loadConfig();
 const app = buildApp({ logger: true, config });
 
-app.listen(config.server).catch((error: unknown) => {
+app.listen(createListenOptions(config.server)).catch((error: unknown) => {
   app.log.error(error);
   process.exitCode = 1;
 });
