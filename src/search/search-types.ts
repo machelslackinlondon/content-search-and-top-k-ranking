@@ -13,6 +13,20 @@ export interface SearchQuery {
   filters: SearchFilters;
 }
 
+export interface FuzzyLimits {
+  maxTermLength: number;
+  maxVocabularyComparisons: number;
+  maxExpansions: number;
+  maxDistance: number;
+  deadlineMs: number;
+}
+
+export interface FuzzyMetadata {
+  comparisons: number;
+  expansions: number;
+  truncated: boolean;
+}
+
 export interface SearchResult {
   document: DocumentInput;
   score: number;
@@ -35,4 +49,5 @@ export interface SearchResponse {
   consideredCandidates: number;
   tookMs: number;
   results: SearchResult[];
+  fuzzy?: FuzzyMetadata;
 }
