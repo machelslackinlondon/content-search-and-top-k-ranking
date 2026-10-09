@@ -1,0 +1,28 @@
+services:
+  search:
+    build:
+      context: .
+    ports:
+      - "3000:3000"
+    environment:
+      INDEX_QUEUE_CAPACITY: "1000"
+      INDEXING_CONCURRENCY: "4"
+      MAX_BULK_SIZE: "100"
+      MAX_CANDIDATES: "10000"
+      MAX_TOP_K: "100"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/health').then(r => { if (!r.ok) process.exit(1) }).catch(() => process.exit(1))"
+      interval: 5s
+      timeout: 2s
+      retries: 5
+      start_period: 2s
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
