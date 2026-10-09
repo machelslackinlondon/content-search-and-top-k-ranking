@@ -134,3 +134,20 @@ test('ranks stronger field matches before weaker matches', () => {
   expect(response.results[0]?.score).toBeGreaterThan(response.results[1]?.score ?? 0);
   expect(response.results[0]?.explanation.total).toBe(response.results[0]?.score);
 });
+
+test('returns only the requested Top-K in best-first order', () => {
+  const service = indexedService([
+    document({ id: 'body-match', title: 'Other', body: 'Node' }),
+    document({ id: 'tag-match', title: 'Other', body: 'Node', tags: ['node'] }),
+    document({ id: 'title-match', title: 'Node', body: 'Other' }),
+  ]);
+
+  const response = service.search({ q: 'node', limit: 2, fuzzy: false, filters: {} });
+
+  expect(response.totalCandidates).toBe(3);
+  expect(response.consideredCandidates).toBe(3);
+  expect(response.results.map(({ document: value }) => value.id)).toEqual([
+    'title-match',
+    'tag-match',
+  ]);
+});

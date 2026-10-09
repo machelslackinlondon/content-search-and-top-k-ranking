@@ -1,5 +1,6 @@
 import type { DocumentInput, StoredDocument } from '../domain/document';
 import { DocumentStore } from '../domain/document-store';
+import { topK } from '../algorithms/min-heap';
 import { InvertedIndex, type FilterField } from '../index/inverted-index';
 import { tokenize } from '../index/tokenizer';
 import { compareRankedResults, rankDocument } from '../ranking/ranker';
@@ -62,7 +63,7 @@ export class SearchService {
         });
       }
     }
-    results.sort(compareRankedResults);
+    const selectedResults = topK(results, query.limit, compareRankedResults);
 
     return {
       query: query.q,
@@ -70,7 +71,7 @@ export class SearchService {
       totalCandidates: candidates.size,
       consideredCandidates: results.length,
       tookMs: Math.max(0, this.#now() - startedAt),
-      results: results.slice(0, Math.max(0, query.limit)),
+      results: selectedResults,
     };
   }
 
